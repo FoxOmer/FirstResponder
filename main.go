@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"fmt"
 	"github.com/gorilla/websocket"
 )
 
@@ -21,25 +22,27 @@ const (
 	// Send pings to client with this period. Must be less than pongWait.
 	pingPeriod = (pongWait * 9) / 10
 
-	// Poll file for changes with this period.
-	filePeriod = 10 * time.Second
+	// Poll endpoint for status with this period.
+	checkerPeriod = 10 * time.Second
 )
 
 var (
-	addr      = flag.String("addr", ":8080", "http service address")
-	homeTempl = template.Must(template.New("").Parse(homeHTML))
-	upgrader  = websocket.Upgrader{
+	addr             string
+	templatePath string
+
+	upgrader = websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
 	}
-	client = &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		} }
 )
 
-type KeyValue struct{
-	Key string
+func init() {
+	flag.StringVar(&addr,"addr", ":8080", "http service address")
+	flag.StringVar(&templatePath, "template", "templates/endpoints.tmpl", "path to endpoints template")
+}
+
+type KeyValue struct {
+	Key   string
 	Value int
 }
 
@@ -58,20 +61,20 @@ func testRequest(c *http.Client) (map[string]int, error) {
 	m["http://httpstat.us/500"] = 0
 	m["http://httpstat.us/203"] = 0
 
-	for k := range m{
-		go func(cl *http.Client, endpoint string){
+	for k := range m {
+		go func(cl *http.Client, endpoint string) {
 			response, err := cl.Get(endpoint)
-			if err != nil{
-				resChan <- &KeyValue {endpoint,-1}
-			}else{
+			if err != nil {
+				resChan <- &KeyValue{endpoint, -1}
+			} else {
 				resChan <- &KeyValue{endpoint, response.StatusCode}
 			}
 		}(c, k)
 	}
 	for i := 0; i < len(m); i++ {
 		select {
-			case result := <-resChan:
-				m[result.Key] = result.Value
+		case result := <-resChan:
+			m[result.Key] = result.Value
 		}
 	}
 
@@ -91,17 +94,17 @@ func reader(ws *websocket.Conn) {
 	}
 }
 
-func writer(ws *websocket.Conn) {
+func writer(ws *websocket.Conn, client *http.Client) {
 	pingTicker := time.NewTicker(pingPeriod)
-	fileTicker := time.NewTicker(filePeriod)
+	endpointTicker := time.NewTicker(checkerPeriod)
 	defer func() {
 		pingTicker.Stop()
-		fileTicker.Stop()
+		endpointTicker.Stop()
 		ws.Close()
 	}()
 	for {
 		select {
-		case <-fileTicker.C:
+		case <-endpointTicker.C:
 			var p map[string]int
 			p, _ = testRequest(client)
 			ws.SetWriteDeadline(time.Now().Add(writeWait))
@@ -118,7 +121,7 @@ func writer(ws *websocket.Conn) {
 	}
 }
 
-func serveWs(w http.ResponseWriter, r *http.Request) {
+func serveWs(w http.ResponseWriter, r *http.Request, client *http.Client) {
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		if _, ok := err.(websocket.HandshakeError); !ok {
@@ -127,11 +130,11 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go writer(ws)
+	go writer(ws,client)
 	reader(ws)
 }
 
-func serveHome(w http.ResponseWriter, r *http.Request) {
+func serveChecker(w http.ResponseWriter, r *http.Request, tmpl *template.Template, client *http.Client) {
 	if r.URL.Path != "/" {
 		http.Error(w, "Not found", 404)
 		return
@@ -144,98 +147,44 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 	p, _ := testRequest(client)
 
 	var v = struct {
-		Data    map[string]int
-		Host    string
+		Data map[string]int
+		Host string
 	}{
 		p,
 		r.Host,
 	}
-	homeTempl.Execute(w, &v)
+	tmpl.Execute(w, &v)
+}
+
+func newHttpClient()*http.Client{
+	return &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		}}
 }
 
 func main() {
-	http.HandleFunc("/", serveHome)
-	http.HandleFunc("/ws", serveWs)
-	if err := http.ListenAndServe(*addr, nil); err != nil {
+	var(
+		tmpl *template.Template
+		err error
+	)
+
+	flag.Parse()
+
+	if tmpl, err = template.ParseFiles(templatePath); err !=nil{
+		log.Fatal(fmt.Sprintf("FATAL - Could not load template: %s", templatePath))
+		return
+	}
+
+	client := newHttpClient()
+
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		serveChecker(w, r, tmpl,client)
+	})
+	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		serveWs(w,r,client)
+	})
+	if err := http.ListenAndServe(addr, nil); err != nil {
 		log.Fatal(err)
 	}
 }
-
-const homeHTML = `<!DOCTYPE html>
-<html lang="en">
-    <head>
-		<script src="https://code.jquery.com/jquery-3.2.1.min.js" integrity="sha256-hwg4gsxgFZhOsEEamdOYGBf13FyQuiTwlAQgxVSNgt4="crossorigin="anonymous"></script>
-
-		<!-- Latest compiled and minified CSS -->
-		<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
-
-		<!-- Optional theme -->
-		<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap-theme.min.css" integrity="sha384-rHyoN1iRsVXV4nD0JutlnGaslCJuC7uwjduW9SVrLvRYooPp2bWYgmgJQIXwl/Sp" crossorigin="anonymous">
-
-		<!-- Latest compiled and minified JavaScript -->
-		<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
-
-		 <title>WebSocket Endpoint Checker</title>
-
-    </head>
-    <body>
-    	<div class="container">
-    		<nav class="navbar navbar-light bg-faded">
-				<h1 class="page-header">Endpoint Checker</h1>
-    		</nav>
-			<div class="row col-lg-6">
-				<table class="table table-hover table-condensed">
-					<thead>
-						<tr class="info">
-							<th>URL</th>
-							<th>Status</th>
-						</tr>
-					</thead>
-					<tbody id="endpoint-list">
-					{{range $key,$value := .Data}}
-						<tr>
-							<td>{{$key}}</td>
-							<td>{{$value}}</td>
-						</tr>
-					{{end}}
-					</tbody>
-				<table>
-			</div>
-		</div>
-        <script type="text/javascript">
-            (function() {
-                var conn = new WebSocket("ws://{{.Host}}/ws");
-                conn.onclose = function(evt) {
-                    data.textContent = 'Connection closed';
-                }
-                conn.onmessage = function(evt) {
-                	console.log(evt.data)
-                    console.log('list updated');
-                    updateList(evt.data)
-                }
-            })();
-            function updateList(msg){
-            	a = JSON.parse(msg)
-            	var ul = "";
-				Object.keys(a.Data).forEach(function(currentKey) {
-					var objClass = colorRow(a.Data[currentKey])
-					ul += "<tr class='" + objClass + "'><td>" + currentKey + "</td><td>" + a.Data[currentKey] + "</td></tr>";
-				});
-				document.getElementById("endpoint-list").innerHTML = ul;
-            }
-            function colorRow(status){
-            	if(status == 200){
-            		return "success"
-            	}
-            	if(status > 200 && status < 400){
-            		return "warning"
-            	}
-            	if(status >= 400){
-            		return "danger"
-            	}
-            	return "active"
-            }
-        </script>
-    </body>
-</html>
-`

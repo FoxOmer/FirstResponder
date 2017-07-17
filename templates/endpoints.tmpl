@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script src="https://code.jquery.com/jquery-3.2.1.min.js" integrity="sha256-hwg4gsxgFZhOsEEamdOYGBf13FyQuiTwlAQgxVSNgt4="crossorigin="anonymous"></script>
+
+    <!-- Latest compiled and minified CSS -->
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
+
+    <!-- Optional theme -->
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap-theme.min.css" integrity="sha384-rHyoN1iRsVXV4nD0JutlnGaslCJuC7uwjduW9SVrLvRYooPp2bWYgmgJQIXwl/Sp" crossorigin="anonymous">
+
+    <!-- Latest compiled and minified JavaScript -->
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
+
+    <title>WebSocket Endpoint Checker</title>
+
+</head>
+<body>
+<div class="container">
+    <nav class="navbar navbar-light bg-faded">
+        <h1 class="page-header">Endpoint Checker</h1>
+    </nav>
+    <div class="row col-lg-6">
+        <table class="table table-hover table-condensed">
+            <thead>
+            <tr class="info">
+                <th>URL</th>
+                <th>Status</th>
+            </tr>
+            </thead>
+            <tbody id="endpoint-list">
+            {{range $key,$value := .Data}}
+            <tr>
+                <td>{{$key}}</td>
+                <td>{{$value}}</td>
+            </tr>
+            {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+<script type="text/javascript">
+    (function() {
+        var conn = new WebSocket("ws://{{.Host}}/ws");
+        conn.onclose = function(evt) {
+            data.textContent = 'Connection closed';
+        };
+        conn.onmessage = function(evt) {
+            console.log(evt.data);
+            console.log('list updated');
+            updateList(evt.data)
+        }
+    })();
+    function updateList(msg){
+        a = JSON.parse(msg);
+        var ul = "";
+        Object.keys(a.Data).forEach(function(currentKey) {
+            var objClass = colorRow(a.Data[currentKey]);
+            ul += "<tr class='" + objClass + "'><td>" + currentKey + "</td><td>" + a.Data[currentKey] + "</td></tr>";
+        });
+        document.getElementById("endpoint-list").innerHTML = ul;
+    }
+    function colorRow(status){
+        if(status == 200){
+            return "success"
+        }
+        if(status > 200 && status < 400){
+            return "warning"
+        }
+        if(status >= 400){
+            return "danger"
+        }
+        return "active"
+    }
+</script>
+</body>
+</html>
