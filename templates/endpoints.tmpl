@@ -56,7 +56,7 @@
         var ul = "";
         Object.keys(a.Data).forEach(function(currentKey) {
             var objClass = colorRow(a.Data[currentKey]);
-            ul += "<tr class='" + objClass + "'><td>" + currentKey + "</td><td>" + a.Data[currentKey] + "</td></tr>";
+            ul += "<tr class='" + objClass + "'><td>" + "<a href='"+ currentKey +"' target='_blank'>" + currentKey + "</a>" + "</td><td>" + a.Data[currentKey] + "</td></tr>";
         });
         document.getElementById("endpoint-list").innerHTML = ul;
     }

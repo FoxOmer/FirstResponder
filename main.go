@@ -27,8 +27,9 @@ const (
 )
 
 var (
-	addr             string
+	addr         string
 	templatePath string
+	pollInterval time.Duration
 
 	upgrader = websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -37,8 +38,9 @@ var (
 )
 
 func init() {
-	flag.StringVar(&addr,"addr", ":8080", "http service address")
+	flag.StringVar(&addr, "addr", ":8080", "http service address")
 	flag.StringVar(&templatePath, "template", "templates/endpoints.tmpl", "path to endpoints template")
+	flag.DurationVar(&pollInterval, "i", checkerPeriod, "poll interval")
 }
 
 type KeyValue struct {
@@ -96,7 +98,7 @@ func reader(ws *websocket.Conn) {
 
 func writer(ws *websocket.Conn, client *http.Client) {
 	pingTicker := time.NewTicker(pingPeriod)
-	endpointTicker := time.NewTicker(checkerPeriod)
+	endpointTicker := time.NewTicker(pollInterval)
 	defer func() {
 		pingTicker.Stop()
 		endpointTicker.Stop()
@@ -130,7 +132,7 @@ func serveWs(w http.ResponseWriter, r *http.Request, client *http.Client) {
 		return
 	}
 
-	go writer(ws,client)
+	go writer(ws, client)
 	reader(ws)
 }
 
@@ -156,7 +158,7 @@ func serveChecker(w http.ResponseWriter, r *http.Request, tmpl *template.Templat
 	tmpl.Execute(w, &v)
 }
 
-func newHttpClient()*http.Client{
+func newHttpClient() *http.Client {
 	return &http.Client{
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
@@ -164,14 +166,14 @@ func newHttpClient()*http.Client{
 }
 
 func main() {
-	var(
+	var (
 		tmpl *template.Template
-		err error
+		err  error
 	)
 
 	flag.Parse()
 
-	if tmpl, err = template.ParseFiles(templatePath); err !=nil{
+	if tmpl, err = template.ParseFiles(templatePath); err != nil {
 		log.Fatal(fmt.Sprintf("FATAL - Could not load template: %s", templatePath))
 		return
 	}
@@ -179,10 +181,10 @@ func main() {
 	client := newHttpClient()
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		serveChecker(w, r, tmpl,client)
+		serveChecker(w, r, tmpl, client)
 	})
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		serveWs(w,r,client)
+		serveWs(w, r, client)
 	})
 	if err := http.ListenAndServe(addr, nil); err != nil {
 		log.Fatal(err)
