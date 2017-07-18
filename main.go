@@ -38,8 +38,8 @@ var (
 )
 
 func init() {
-	flag.StringVar(&addr, "addr", ":8080", "http service address")
-	flag.StringVar(&templatePath, "template", "templates/endpoints.tmpl", "path to endpoints template")
+	flag.StringVar(&addr, "a", ":8080", "http service address")
+	flag.StringVar(&templatePath, "t", "templates/endpoints.tmpl", "path to endpoints template")
 	flag.DurationVar(&pollInterval, "i", checkerPeriod, "poll interval")
 }
 
