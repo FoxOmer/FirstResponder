@@ -30,6 +30,7 @@ var (
 	addr         string
 	templatePath string
 	pollInterval time.Duration
+	withFollowRedirect bool
 
 	upgrader = websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -41,6 +42,7 @@ func init() {
 	flag.StringVar(&addr, "a", ":8080", "http service address")
 	flag.StringVar(&templatePath, "t", "templates/endpoints.tmpl", "path to endpoints template")
 	flag.DurationVar(&pollInterval, "i", checkerPeriod, "poll interval")
+	flag.BoolVar(&withFollowRedirect, "f", false, "follow redirection")
 }
 
 type KeyValue struct {
@@ -56,6 +58,7 @@ func testRequest(c *http.Client) (map[string]int, error) {
 	m["http://www.walla.co.il"] = 0
 	m["https://jigsaw.w3.org/HTTP/300/302.html"] = 0
 	m["http://httpstat.us/200"] = 0
+	m["http://httpstat.us/301"] = 0
 	m["http://httpstat.us/206"] = 0
 	m["http://httpstat.us/401"] = 0
 	m["http://httpstat.us/503"] = 0
@@ -112,7 +115,8 @@ func writer(ws *websocket.Conn, client *http.Client) {
 			ws.SetWriteDeadline(time.Now().Add(writeWait))
 			ws.WriteJSON(struct {
 				Data map[string]int
-			}{p})
+				LastUpdate string
+			}{p, time.Now().Format("2006-01-02T15:04:05.999999-07:00")})
 
 		case <-pingTicker.C:
 			ws.SetWriteDeadline(time.Now().Add(writeWait))
@@ -151,18 +155,23 @@ func serveChecker(w http.ResponseWriter, r *http.Request, tmpl *template.Templat
 	var v = struct {
 		Data map[string]int
 		Host string
+		LastUpdate string
 	}{
 		p,
 		r.Host,
+		time.Now().Format("2006-01-02T15:04:05.999999-07:00"),
 	}
 	tmpl.Execute(w, &v)
 }
 
-func newHttpClient() *http.Client {
-	return &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		}}
+func newHttpClient(withFollowRedirect bool) *http.Client {
+	if withFollowRedirect{
+		return &http.Client{
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse
+			}}
+	}
+	return http.DefaultClient
 }
 
 func main() {
@@ -178,7 +187,7 @@ func main() {
 		return
 	}
 
-	client := newHttpClient()
+	client := newHttpClient(withFollowRedirect)
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		serveChecker(w, r, tmpl, client)
