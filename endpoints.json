@@ -1,0 +1,15 @@
+{
+  "endpoints": [
+    "http://www.ynet.co.il",
+    "http://www.walla.co.il",
+    "https://jigsaw.w3.org/HTTP/300/302.html",
+    "http://httpstat.us/200",
+    "http://httpstat.us/301",
+    "http://httpstat.us/206",
+    "http://httpstat.us/401",
+    "http://httpstat.us/503",
+    "http://httpstat.us/404",
+    "http://httpstat.us/500",
+    "http://httpstat.us/203"
+  ]
+}

@@ -2,13 +2,13 @@ package main
 
 import (
 	"flag"
+	"fmt"
+	"github.com/gorilla/websocket"
 	"html/template"
+
 	"log"
 	"net/http"
 	"time"
-
-	"fmt"
-	"github.com/gorilla/websocket"
 )
 
 const (
@@ -36,6 +36,8 @@ var (
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
 	}
+	endpointsConfigPath string
+	endpoints           []string
 )
 
 func init() {
@@ -43,6 +45,7 @@ func init() {
 	flag.StringVar(&templatePath, "t", "templates/endpoints.tmpl", "path to endpoints template")
 	flag.DurationVar(&pollInterval, "i", checkerPeriod, "poll interval")
 	flag.BoolVar(&withFollowRedirect, "f", false, "follow redirection")
+	flag.StringVar(&endpointsConfigPath, "e", "endpoints.json", "path to endpoints configuration json")
 }
 
 type KeyValue struct {
@@ -54,17 +57,9 @@ func testRequest(c *http.Client) (map[string]int, error) {
 	resChan := make(chan *KeyValue)
 	defer close(resChan)
 	m := make(map[string]int)
-	m["http://www.ynet.co.il"] = 0
-	m["http://www.walla.co.il"] = 0
-	m["https://jigsaw.w3.org/HTTP/300/302.html"] = 0
-	m["http://httpstat.us/200"] = 0
-	m["http://httpstat.us/301"] = 0
-	m["http://httpstat.us/206"] = 0
-	m["http://httpstat.us/401"] = 0
-	m["http://httpstat.us/503"] = 0
-	m["http://httpstat.us/404"] = 0
-	m["http://httpstat.us/500"] = 0
-	m["http://httpstat.us/203"] = 0
+	for _, endpoint := range endpoints {
+		m[endpoint] = 0
+	}
 
 	for k := range m {
 		go func(cl *http.Client, endpoint string) {
@@ -181,6 +176,8 @@ func main() {
 	)
 
 	flag.Parse()
+
+	endpoints = loadEndpoints(endpointsConfigPath)
 
 	if tmpl, err = template.ParseFiles(templatePath); err != nil {
 		log.Fatal(fmt.Sprintf("FATAL - Could not load template: %s", templatePath))
