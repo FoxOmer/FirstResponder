@@ -27,9 +27,9 @@ const (
 )
 
 var (
-	addr         string
-	templatePath string
-	pollInterval time.Duration
+	addr               string
+	templatePath       string
+	pollInterval       time.Duration
 	withFollowRedirect bool
 
 	upgrader = websocket.Upgrader{
@@ -114,7 +114,7 @@ func writer(ws *websocket.Conn, client *http.Client) {
 			p, _ = testRequest(client)
 			ws.SetWriteDeadline(time.Now().Add(writeWait))
 			ws.WriteJSON(struct {
-				Data map[string]int
+				Data       map[string]int
 				LastUpdate string
 			}{p, time.Now().Format("2006-01-02T15:04:05.999999-07:00")})
 
@@ -153,8 +153,8 @@ func serveChecker(w http.ResponseWriter, r *http.Request, tmpl *template.Templat
 	p, _ := testRequest(client)
 
 	var v = struct {
-		Data map[string]int
-		Host string
+		Data       map[string]int
+		Host       string
 		LastUpdate string
 	}{
 		p,
@@ -165,13 +165,13 @@ func serveChecker(w http.ResponseWriter, r *http.Request, tmpl *template.Templat
 }
 
 func newHttpClient(withFollowRedirect bool) *http.Client {
-	if withFollowRedirect{
-		return &http.Client{
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				return http.ErrUseLastResponse
-			}}
+	if withFollowRedirect {
+		return http.DefaultClient
 	}
-	return http.DefaultClient
+	return &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		}}
 }
 
 func main() {
