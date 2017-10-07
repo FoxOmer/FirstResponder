@@ -53,35 +53,11 @@ type KeyValue struct {
 	Value int
 }
 
-func testRequest(c *http.Client) (map[string]int, error) {
-	resChan := make(chan *KeyValue)
-	defer close(resChan)
-	m := make(map[string]int)
-	for _, endpoint := range endpoints {
-		m[endpoint] = 0
-	}
-
-	for k := range m {
-		go func(cl *http.Client, endpoint string) {
-			response, err := cl.Get(endpoint)
-			if err != nil {
-				resChan <- &KeyValue{endpoint, -1}
-			} else {
-				resChan <- &KeyValue{endpoint, response.StatusCode}
-			}
-		}(c, k)
-	}
-	for i := 0; i < len(m); i++ {
-		select {
-		case result := <-resChan:
-			m[result.Key] = result.Value
-		}
-	}
-
-	return m, nil
+type ReaderWriter struct {
+	logic *Logic
 }
 
-func reader(ws *websocket.Conn) {
+func (rw *ReaderWriter)reader(ws *websocket.Conn) {
 	defer ws.Close()
 	ws.SetReadLimit(512)
 	ws.SetReadDeadline(time.Now().Add(pongWait))
@@ -94,7 +70,7 @@ func reader(ws *websocket.Conn) {
 	}
 }
 
-func writer(ws *websocket.Conn, client *http.Client) {
+func (rw *ReaderWriter) writer(ws *websocket.Conn, client *http.Client) {
 	pingTicker := time.NewTicker(pingPeriod)
 	endpointTicker := time.NewTicker(pollInterval)
 	defer func() {
@@ -106,7 +82,7 @@ func writer(ws *websocket.Conn, client *http.Client) {
 		select {
 		case <-endpointTicker.C:
 			var p map[string]int
-			p, _ = testRequest(client)
+			p, _ = rw.logic.Execute(client)
 			ws.SetWriteDeadline(time.Now().Add(writeWait))
 			ws.WriteJSON(struct {
 				Data       map[string]int
@@ -122,7 +98,7 @@ func writer(ws *websocket.Conn, client *http.Client) {
 	}
 }
 
-func serveWs(w http.ResponseWriter, r *http.Request, client *http.Client) {
+func (rw *ReaderWriter) serveWs(w http.ResponseWriter, r *http.Request, client *http.Client) {
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		if _, ok := err.(websocket.HandshakeError); !ok {
@@ -131,11 +107,11 @@ func serveWs(w http.ResponseWriter, r *http.Request, client *http.Client) {
 		return
 	}
 
-	go writer(ws, client)
-	reader(ws)
+	go rw.writer(ws, client)
+	rw.reader(ws)
 }
 
-func serveChecker(w http.ResponseWriter, r *http.Request, tmpl *template.Template, client *http.Client) {
+func (rw *ReaderWriter) serveChecker(w http.ResponseWriter, r *http.Request, tmpl *template.Template, client *http.Client) {
 	if r.URL.Path != "/" {
 		http.Error(w, "Not found", 404)
 		return
@@ -145,7 +121,7 @@ func serveChecker(w http.ResponseWriter, r *http.Request, tmpl *template.Templat
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	p, _ := testRequest(client)
+	p, _ := rw.logic.Execute(client)
 
 	var v = struct {
 		Data       map[string]int
@@ -186,11 +162,17 @@ func main() {
 
 	client := newHttpClient(withFollowRedirect)
 
+	rw := &ReaderWriter{
+		logic: &Logic{
+
+		},
+	}
+
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		serveChecker(w, r, tmpl, client)
+		rw.serveChecker(w, r, tmpl, client)
 	})
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		serveWs(w, r, client)
+		rw.serveWs(w, r, client)
 	})
 	if err := http.ListenAndServe(addr, nil); err != nil {
 		log.Fatal(err)
